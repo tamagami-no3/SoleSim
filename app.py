@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+import pandas as pd  # <--- Added for the Results Table
 import time
 import matplotlib
 matplotlib.use('Agg')  # Prevents threading errors in Streamlit
@@ -121,20 +122,17 @@ def show_dashboard():
         run_walk = st.button("▶ EXECUTE_WALK_CYCLE", type="primary")
 
     # --- DYNAMIC CALCULATION ENGINE (METRICS) ---
-    # 1. Calculate approximate volume (Heel + Forefoot average * Area)
-    #    Assuming a standard shoe area of ~250 cm^2 (25000 mm^2)
     avg_thickness_mm = (p_heel + p_fore) / 2
     est_volume_cm3 = (avg_thickness_mm / 10) * 250 
     
     # 2. Mass & Cost Calculation
     est_mass_g = est_volume_cm3 * p_density
-    est_cost_inr = est_mass_g * mat_props.get("cost", 0.5) * 1.5 # 1.5x factor for mfg overhead
+    est_cost_inr = est_mass_g * mat_props.get("cost", 0.5) * 1.5 
     
-    # 3. Life Expectancy (Inverse to wear factor)
-    #    Base life 500km for wear_factor 0.01. Lower wear = Higher Life.
+    # 3. Life Expectancy
     est_life_km = 500 * (0.01 / p_wear_factor)
     
-    # 4. Carbon Footprint (Approx 0.02 kg CO2 per gram of polymer)
+    # 4. Carbon Footprint 
     est_carbon_kg = (est_mass_g * 0.02) / 1000
 
     # --- MAIN DISPLAY ---
@@ -184,7 +182,8 @@ def show_dashboard():
             try:
                 sim.wear_map[:] = 0
                 peak_hist = []
-                # FIX: Reduced steps to 20 for smoother performance
+                log_data = [] # <--- Data Logger List
+                
                 steps_count = 20
                 phases = np.linspace(0, 1, steps_count)
                 bar = st.progress(0)
@@ -192,6 +191,13 @@ def show_dashboard():
                 for i, phase in enumerate(phases):
                     w_p, load = sim.solve_walking_step(p_weight, phase)
                     peak_hist.append(np.max(w_p))
+                    
+                    # LOGGING DATA
+                    log_data.append({
+                        "Phase (%)": int(phase * 100),
+                        "Peak Pressure (kPa)": round(np.max(w_p), 2),
+                        "Applied Load (N)": round(load, 2)
+                    })
                     
                     # 1. Generate Figures
                     fig_heat = plot_dynamic_heatmap(w_p, peak_p*1.5)
@@ -201,17 +207,23 @@ def show_dashboard():
                     chart_spot.pyplot(fig_heat)
                     graph_spot.pyplot(fig_line)
                     
-                    # 3. Explicit Memory Cleanup (Fixes the lag/jump issue)
+                    # 3. Explicit Memory Cleanup
                     plt.close(fig_heat)
                     plt.close(fig_line)
                     
-                    # 4. Slower Sleep (Fixes the "Too Fast" issue)
+                    # 4. Slower Sleep
                     bar.progress((i+1)/steps_count)
                     time.sleep(0.1) 
                 
                 bar.empty()
                 st.success("SEQUENCE COMPLETE")
                 
+                # --- NEW RESULTS TABLE ---
+                st.markdown("### 📊 SIMULATION DATA LOG")
+                df_log = pd.DataFrame(log_data)
+                # Display simply as a dataframe
+                st.dataframe(df_log.set_index("Phase (%)"), use_container_width=True, height=200)
+
                 with st.expander("📉 DURABILITY REPORT", expanded=True):
                     fig_w, ax_w = plt.subplots(figsize=(6, 2))
                     ax_w.imshow(sim.wear_map, cmap='inferno', aspect='auto')
