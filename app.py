@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import time
 import matplotlib
-matplotlib.use('Agg') 
+matplotlib.use('Agg')  # Prevents threading errors in Streamlit
 import matplotlib.pyplot as plt
 
 # --- 1. ROBUST IMPORT SYSTEM ---
@@ -34,7 +34,7 @@ st.markdown("""
     }
     .hacker-title {
         font-family: 'Courier New', monospace; 
-        font-size: 5rem; 
+        font-size: 4rem; 
         font-weight: 900; 
         text-align: center;
         background: linear-gradient(90deg, #00FFFF 0%, #0080FF 50%, #8A2BE2 100%);
@@ -43,7 +43,7 @@ st.markdown("""
         margin-bottom: 0px;
     }
     .hacker-subtitle {
-        text-align: center; color: #888; font-family: monospace; font-size: 1.2rem; margin-bottom: 50px; letter-spacing: 1px;
+        text-align: center; color: #888; font-family: monospace; font-size: 1.2rem; margin-bottom: 30px; letter-spacing: 1px;
     }
     .feature-card { background: rgba(255, 255, 255, 0.05); border: 1px solid #333; padding: 20px; border-radius: 10px; text-align: center; transition: 0.3s; }
     .feature-card:hover { transform: translateY(-5px); border-color: #00FFFF; }
@@ -120,22 +120,38 @@ def show_dashboard():
         st.divider()
         run_walk = st.button("▶ EXECUTE_WALK_CYCLE", type="primary")
 
-        try:
-            sim_temp = SoleSimulation()
-            sim_temp.update_design(p_heel, p_fore, p_arch, p_modulus, p_groove, p_wear_factor)
-            vol = np.sum(sim_temp.thickness_map / 10) * (sim_temp.dx ** 2)
-            mass = vol * p_density
-            cost = vol * mat_props.get("cost", 0.5)
-            st.divider()
-            st.caption(f"MASS: {mass:.1f}g | COST: ₹{cost:.2f}")
-        except Exception as e:
-            st.error(f"Spec Calc Error: {e}")
+    # --- DYNAMIC CALCULATION ENGINE (METRICS) ---
+    # 1. Calculate approximate volume (Heel + Forefoot average * Area)
+    #    Assuming a standard shoe area of ~250 cm^2 (25000 mm^2)
+    avg_thickness_mm = (p_heel + p_fore) / 2
+    est_volume_cm3 = (avg_thickness_mm / 10) * 250 
+    
+    # 2. Mass & Cost Calculation
+    est_mass_g = est_volume_cm3 * p_density
+    est_cost_inr = est_mass_g * mat_props.get("cost", 0.5) * 1.5 # 1.5x factor for mfg overhead
+    
+    # 3. Life Expectancy (Inverse to wear factor)
+    #    Base life 500km for wear_factor 0.01. Lower wear = Higher Life.
+    est_life_km = 500 * (0.01 / p_wear_factor)
+    
+    # 4. Carbon Footprint (Approx 0.02 kg CO2 per gram of polymer)
+    est_carbon_kg = (est_mass_g * 0.02) / 1000
 
+    # --- MAIN DISPLAY ---
     st.markdown('<div class="hacker-title" style="font-size: 2.5rem;">SOLESIM // DASHBOARD</div>', unsafe_allow_html=True)
+    
+    # Dynamic Metrics Row
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Est. Life Cycle", f"{int(est_life_km)} km", f"{'High' if est_life_km > 600 else 'Avg'}")
+    m2.metric("Theoretical Mass", f"{int(est_mass_g)} g", f"{'-Light' if est_mass_g < 300 else '+Heavy'}")
+    m3.metric("Mfg. Cost (Est)", f"₹{est_cost_inr:.2f}", "INR")
+    m4.metric("Carbon Footprint", f"{est_carbon_kg:.4f} kg", "CO2e")
+    
     st.markdown("---")
     
     col1, col2 = st.columns([1, 1])
     
+    # Initialize Physics Engine
     try:
         sim = SoleSimulation()
         sim.update_gait(p_gait)
@@ -168,7 +184,7 @@ def show_dashboard():
             try:
                 sim.wear_map[:] = 0
                 peak_hist = []
-                # FIX: Reduced steps to 20 to prevent browser lag (jumping)
+                # FIX: Reduced steps to 20 for smoother performance
                 steps_count = 20
                 phases = np.linspace(0, 1, steps_count)
                 bar = st.progress(0)
