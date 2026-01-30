@@ -151,7 +151,8 @@ def show_dashboard():
         if peak_p > 250:
              st.warning("⚠️ WARNING: CRITICAL PRESSURE. Material Yield Limit Reached.")
         
-        st.pyplot(plot_static_heatmap(pressure, peak_p))
+        fig_static = plot_static_heatmap(pressure, peak_p)
+        st.pyplot(fig_static)
         st.metric("COMFORT INDEX", f"{max(100 - (peak_p * 2.5), 0):.0f}/100")
         st.markdown("### 3D TOPOLOGY")
         st.plotly_chart(create_3d_topology(pressure), use_container_width=True)
@@ -160,7 +161,6 @@ def show_dashboard():
         st.subheader("2. DYNAMIC GAIT SURROGATE")
         st.markdown("""<div style="background:#000; border:1px solid #333; padding:10px; border-radius:5px; text-align:center;"><span style="color:#00FFFF; font-family:monospace;">LIVE SENSOR DATA FEED</span></div>""", unsafe_allow_html=True)
         
-        # --- FIXED: ADDED TWO PLACEHOLDERS (Heatmap AND Line Graph) ---
         chart_spot = st.empty()
         graph_spot = st.empty()
         
@@ -168,27 +168,42 @@ def show_dashboard():
             try:
                 sim.wear_map[:] = 0
                 peak_hist = []
-                phases = np.linspace(0, 1, 25)
+                # FIX: Reduced steps to 20 to prevent browser lag (jumping)
+                steps_count = 20
+                phases = np.linspace(0, 1, steps_count)
                 bar = st.progress(0)
+                
                 for i, phase in enumerate(phases):
                     w_p, load = sim.solve_walking_step(p_weight, phase)
                     peak_hist.append(np.max(w_p))
                     
-                    # UPDATE BOTH GRAPHS
-                    chart_spot.pyplot(plot_dynamic_heatmap(w_p, peak_p*1.5))
-                    graph_spot.pyplot(plot_live_chart(peak_hist, phase, max(peak_p*1.5, max(peak_hist) + 1)))
+                    # 1. Generate Figures
+                    fig_heat = plot_dynamic_heatmap(w_p, peak_p*1.5)
+                    fig_line = plot_live_chart(peak_hist, phase, max(peak_p*1.5, max(peak_hist) + 1))
                     
-                    bar.progress((i+1)/25)
-                    time.sleep(0.05)
-                bar.empty()
+                    # 2. Update Placeholders
+                    chart_spot.pyplot(fig_heat)
+                    graph_spot.pyplot(fig_line)
+                    
+                    # 3. Explicit Memory Cleanup (Fixes the lag/jump issue)
+                    plt.close(fig_heat)
+                    plt.close(fig_line)
+                    
+                    # 4. Slower Sleep (Fixes the "Too Fast" issue)
+                    bar.progress((i+1)/steps_count)
+                    time.sleep(0.1) 
                 
+                bar.empty()
                 st.success("SEQUENCE COMPLETE")
+                
                 with st.expander("📉 DURABILITY REPORT", expanded=True):
                     fig_w, ax_w = plt.subplots(figsize=(6, 2))
                     ax_w.imshow(sim.wear_map, cmap='inferno', aspect='auto')
                     ax_w.axis('off')
                     ax_w.set_title("PREDICTED WEAR ZONES", color="white")
                     st.pyplot(fig_w)
+                    plt.close(fig_w)
+                    
             except Exception as e:
                 st.error(f"SIMULATION ABORTED: {e}")
         else:
